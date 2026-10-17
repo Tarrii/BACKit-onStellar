@@ -91,11 +91,17 @@ use errors::GasStationError;
 use events::{
     emit_admin_changed, emit_gas_station_initialized, emit_pool_refilled,
     emit_sponsored_payout_claimed, emit_sponsorship_registered, emit_sponsorship_revoked,
+    emit_transaction_sponsored,
 };
 use types::{GasStationMetrics, SponsorshipInfo};
 
 /// 100% in basis points.
 const MAX_BPS: u32 = 10_000;
+
+/// Maximum sponsored operations per account (onboarding allowance).
+const MAX_SPONSORED_OPS: u32 = 3;
+/// Gas booked against the reserve for each sponsored operation (0.1 XLM).
+const SPONSOR_FEE_PER_OP: i128 = 1_000_000;
 
 // ─── Token transfer helper ─────────────────────────────────────────────────────
 //
@@ -238,6 +244,50 @@ impl GasStation {
         storage::set_metrics(&env, &metrics);
 
         emit_sponsorship_registered(&env, &user, max_gas_xlm, winning_cut_bps);
+    }
+
+    /// Sponsor one onboarding operation (e.g. `create` or `stake`) for a
+    /// new user. Called by the protocol relayer (the admin). Each account
+    /// gets at most `MAX_SPONSORED_OPS` sponsored operations, and every
+    /// operation books `SPONSOR_FEE_PER_OP` against the reserve, which must
+    /// cover it, so the total spend is bounded by the funded pool.
+    pub fn sponsor_user_operation(env: Env, user: Address, operation_type: Symbol) {
+        require_admin(&env);
+
+        let used = storage::get_op_count(&env, &user);
+        if used >= MAX_SPONSORED_OPS {
+            soroban_sdk::panic_with_error!(&env, GasStationError::SponsorshipLimitReached);
+        }
+
+        let mut metrics = storage::get_metrics(&env);
+        let new_spent = metrics
+            .total_xlm_spent
+            .checked_add(SPONSOR_FEE_PER_OP)
+            .unwrap_or_else(|| overflow(&env));
+        let xlm_token = require_xlm_token(&env);
+        let balance =
+            token::Client::new(&env, &xlm_token).balance(&env.current_contract_address());
+        if balance < SPONSOR_FEE_PER_OP {
+            soroban_sdk::panic_with_error!(&env, GasStationError::InsufficientReserve);
+        }
+
+        storage::set_op_count(&env, &user, used + 1);
+        metrics.total_transactions_sponsored = metrics
+            .total_transactions_sponsored
+            .checked_add(1)
+            .unwrap_or_else(|| overflow(&env));
+        metrics.total_xlm_spent = new_spent;
+        metrics.net_profit_loss = metrics
+            .total_winnings_collected
+            .checked_sub(new_spent)
+            .unwrap_or_else(|| overflow(&env));
+        storage::set_metrics(&env, &metrics);
+
+        emit_transaction_sponsored(&env, &user, &operation_type);
+    }
+
+    pub fn get_sponsored_op_count(env: Env, user: Address) -> u32 {
+        storage::get_op_count(&env, &user)
     }
 
     /// Deactivate a user's sponsorship (admin only). Past metrics are left

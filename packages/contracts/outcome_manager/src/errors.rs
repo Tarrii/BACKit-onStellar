@@ -72,4 +72,14 @@ pub enum OutcomeError {
     /// The same oracle submitted a second resolution observation for the
     /// same `call_id` via `submit_resolution_observation`.
     DuplicateOracleObservation = 32,
+    /// The oracle timestamp is earlier than the call's `end_ts`.
+    CallNotEnded = 33,
+    /// The oracle timestamp is more than 24 hours after the call's `end_ts`.
+    OracleSignatureExpired = 34,
+    /// The oracle timestamp is more than 300 seconds in the future.
+    FutureTimestamp = 35,
+    /// Fewer than `quorum` valid distinct oracle signatures were supplied.
+    InsufficientSignatures = 36,
+    /// The same oracle public key signed more than once in one submission.
+    DuplicateSigner = 37,
 }

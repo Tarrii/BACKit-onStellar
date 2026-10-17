@@ -555,3 +555,41 @@ fn initialize_cannot_be_called_twice() {
         .try_initialize(&setup.admin, &setup.token);
     assert_contract_error(result, GasStationError::AlreadyInitialized);
 }
+
+// ─── sponsor_user_operation ────────────────────────────────────────────────────
+
+#[test]
+fn sponsor_user_operation_enforces_per_user_limit_of_three() {
+    use soroban_sdk::symbol_short;
+    let setup = setup_full_stack();
+    setup.gas_station.refill_gas_pool(&setup.admin, &10_000_000i128);
+    let user = Address::generate(&setup.env);
+    let other = Address::generate(&setup.env);
+
+    for _ in 0..3 {
+        setup.gas_station.sponsor_user_operation(&user, &symbol_short!("stake"));
+    }
+    assert_eq!(setup.gas_station.get_sponsored_op_count(&user), 3);
+    assert_contract_error(
+        setup.gas_station.try_sponsor_user_operation(&user, &symbol_short!("create")),
+        GasStationError::SponsorshipLimitReached,
+    );
+
+    // The allowance is per account.
+    setup.gas_station.sponsor_user_operation(&other, &symbol_short!("create"));
+    assert_eq!(setup.gas_station.get_sponsored_op_count(&other), 1);
+    assert_eq!(setup.gas_station.get_metrics().total_transactions_sponsored, 4);
+}
+
+#[test]
+fn sponsor_user_operation_requires_a_funded_reserve() {
+    use soroban_sdk::symbol_short;
+    let setup = setup_full_stack();
+    let user = Address::generate(&setup.env);
+
+    assert_contract_error(
+        setup.gas_station.try_sponsor_user_operation(&user, &symbol_short!("stake")),
+        GasStationError::InsufficientReserve,
+    );
+    assert_eq!(setup.gas_station.get_sponsored_op_count(&user), 0);
+}

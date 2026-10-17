@@ -29,3 +29,10 @@ pub fn emit_oracle_rated(env: &Env, provider: &BytesN<32>, user: &Address, satis
         (provider.clone(), user.clone(), satisfied),
     );
 }
+
+pub fn emit_oracle_slashed(env: &Env, pubkey: &BytesN<32>, recipient: &Address, bounty: i128, burned: i128) {
+    env.events().publish(
+        ("oracle_marketplace", "OracleSlashed"),
+        (pubkey.clone(), recipient.clone(), bounty, burned),
+    );
+}

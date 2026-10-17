@@ -25,4 +25,8 @@ pub enum GasStationError {
     Overflow = 9,
     /// `refill_gas_pool` was called with a non-positive amount.
     InvalidRefillAmount = 10,
+    /// `user` has already used all `MAX_SPONSORED_OPS` sponsored operations.
+    SponsorshipLimitReached = 11,
+    /// The gas pool cannot cover the per-operation sponsorship fee.
+    InsufficientReserve = 12,
 }

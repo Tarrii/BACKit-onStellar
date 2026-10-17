@@ -14,7 +14,7 @@ mod test;
 mod ttl_tests;
 mod verification;
 
-pub use storage::SignedOutcome;
+pub use storage::{OracleSignature, SignedOutcome};
 
 use backit_shared::ttl::{self, Retention};
 use soroban_sdk::xdr::ToXdr;
@@ -298,6 +298,26 @@ fn try_compute_twap(
 
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
+/// Oracle resolution timestamp `T` must satisfy
+/// `call_end_ts <= T <= now + 300` and `T <= call_end_ts + 86400`
+/// (and not exceed the configured `max_submission_delay`).
+fn check_timestamp_window(env: &Env, timestamp: u64, call_end_ts: u64) {
+    if timestamp < call_end_ts {
+        soroban_sdk::panic_with_error!(env, OutcomeError::CallNotEnded);
+    }
+    let now = env.ledger().timestamp();
+    if timestamp > now.checked_add(300).unwrap_or_else(|| overflow(env)) {
+        soroban_sdk::panic_with_error!(env, OutcomeError::FutureTimestamp);
+    }
+    if timestamp > call_end_ts.checked_add(86_400).unwrap_or_else(|| overflow(env)) {
+        soroban_sdk::panic_with_error!(env, OutcomeError::OracleSignatureExpired);
+    }
+    let max_delay = storage::get_max_submission_delay(env);
+    if timestamp > call_end_ts.checked_add(max_delay).unwrap_or_else(|| overflow(env)) {
+        soroban_sdk::panic_with_error!(env, OutcomeError::SubmissionWindowExpired);
+    }
+}
+
 #[contract]
 pub struct OutcomeManager;
 
@@ -569,13 +589,7 @@ impl OutcomeManager {
             soroban_sdk::panic_with_error!(&env, OutcomeError::InvalidOutcome);
         }
 
-        let max_delay = storage::get_max_submission_delay(&env);
-        let deadline = call_end_ts
-            .checked_add(max_delay)
-            .unwrap_or_else(|| overflow(&env));
-        if signed.timestamp > deadline {
-            soroban_sdk::panic_with_error!(&env, OutcomeError::SubmissionWindowExpired);
-        }
+        check_timestamp_window(&env, signed.timestamp, call_end_ts);
 
         let message = build_message(
             &env,
@@ -658,6 +672,56 @@ impl OutcomeManager {
                 },
             );
         }
+    }
+
+    /// Resolve a call from a single submission carrying M-of-N oracle
+    /// signatures over the identical outcome digest. Every signer must be a
+    /// registered oracle and appear only once; at least `quorum` signatures
+    /// are required. A bad signature traps (ed25519_verify), reverting the call.
+    pub fn submit_threshold_outcome(
+        env: Env,
+        registry: Address,
+        call_id: u64,
+        outcome: u32,
+        price: i128,
+        timestamp: u64,
+        signatures: Vec<OracleSignature>,
+        call_end_ts: u64,
+    ) {
+        if is_paused(&env) {
+            soroban_sdk::panic_with_error!(&env, OutcomeError::ContractPaused);
+        }
+        validate_market_registry(&env, &registry, call_id);
+        if env.storage().instance().has(&InstanceKey::FinalOutcome(call_id)) {
+            soroban_sdk::panic_with_error!(&env, OutcomeError::AlreadySettled);
+        }
+        if !is_valid_outcome(outcome) {
+            soroban_sdk::panic_with_error!(&env, OutcomeError::InvalidOutcome);
+        }
+        check_timestamp_window(&env, timestamp, call_end_ts);
+
+        let oracles = get_oracles(&env);
+        let message = build_message(&env, call_id, outcome, price, timestamp);
+        let mut seen: Vec<BytesN<32>> = Vec::new(&env);
+        for sig in signatures.iter() {
+            if !oracles.contains_key(sig.oracle_pubkey.clone()) {
+                soroban_sdk::panic_with_error!(&env, OutcomeError::UnauthorizedOracle);
+            }
+            if seen.contains(sig.oracle_pubkey.clone()) {
+                soroban_sdk::panic_with_error!(&env, OutcomeError::DuplicateSigner);
+            }
+            verify_signature(&env, &sig.oracle_pubkey, &sig.signature, &message);
+            seen.push_back(sig.oracle_pubkey.clone());
+        }
+        if seen.len() < get_quorum(&env) {
+            soroban_sdk::panic_with_error!(&env, OutcomeError::InsufficientSignatures);
+        }
+
+        Self::finalize(
+            &env,
+            &registry,
+            Outcome { call_id, outcome, price, timestamp },
+        );
     }
 
     fn finalize(env: &Env, registry: &Address, outcome: Outcome) {

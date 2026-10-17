@@ -12,6 +12,8 @@ pub enum DataKey {
     /// limitation this guards).
     CallProcessed(u64),
     Metrics,
+    /// Number of operations already sponsored for a user.
+    OpCount(Address),
 }
 
 pub fn set_admin(env: &Env, admin: &Address) {
@@ -59,4 +61,17 @@ pub fn mark_call_processed(env: &Env, call_id: u64) {
     env.storage()
         .instance()
         .set(&DataKey::CallProcessed(call_id), &true);
+}
+
+pub fn get_op_count(env: &Env, user: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::OpCount(user.clone()))
+        .unwrap_or(0)
+}
+
+pub fn set_op_count(env: &Env, user: &Address, n: u32) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::OpCount(user.clone()), &n);
 }

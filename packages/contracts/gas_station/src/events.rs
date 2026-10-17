@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, Symbol};
 
 pub fn emit_gas_station_initialized(env: &Env, admin: &Address, xlm_token: &Address) {
     env.events().publish(
@@ -48,4 +48,11 @@ pub fn emit_sponsored_payout_claimed(
 pub fn emit_pool_refilled(env: &Env, amount: i128, new_balance: i128) {
     env.events()
         .publish(("gas_station", "pool_refilled"), (amount, new_balance));
+}
+
+pub fn emit_transaction_sponsored(env: &Env, user: &Address, op_type: &Symbol) {
+    env.events().publish(
+        ("gas_station", "TransactionSponsored"),
+        (user.clone(), op_type.clone()),
+    );
 }

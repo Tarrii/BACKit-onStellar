@@ -29,6 +29,15 @@ pub struct SignedOutcome {
     pub signature: BytesN<64>,
 }
 
+/// One oracle's signature over the shared outcome digest, used by
+/// `submit_threshold_outcome`.
+#[contracttype]
+#[derive(Clone)]
+pub struct OracleSignature {
+    pub oracle_pubkey: BytesN<32>,
+    pub signature: BytesN<64>,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleVote {

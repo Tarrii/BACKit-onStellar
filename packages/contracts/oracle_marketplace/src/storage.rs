@@ -8,6 +8,7 @@ pub enum DataKey {
     OracleList,
     OracleRatings(BytesN<32>),
     CallOracle(u64),
+    StakeToken,
 }
 
 pub fn set_config(env: &Env, config: &MarketplaceConfig) {
@@ -78,4 +79,12 @@ pub fn get_oracle_ratings(env: &Env, oracle: &BytesN<32>) -> Map<Address, bool> 
         .instance()
         .get(&DataKey::OracleRatings(oracle.clone()))
         .unwrap_or_else(|| Map::new(env))
+}
+
+pub fn set_stake_token(env: &Env, token: &Address) {
+    env.storage().instance().set(&DataKey::StakeToken, token);
+}
+
+pub fn get_stake_token(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::StakeToken)
 }

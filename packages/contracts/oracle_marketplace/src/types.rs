@@ -31,3 +31,19 @@ pub struct MarketplaceConfig {
     pub cooldown_secs: u64,
     pub default_fee_bps: u32,
 }
+
+/// Two signed reports from one oracle for the same call that disagree:
+/// cryptographic proof of double-signing.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SlashProof {
+    pub call_id: u64,
+    pub outcome_a: u32,
+    pub price_a: i128,
+    pub timestamp_a: u64,
+    pub signature_a: BytesN<64>,
+    pub outcome_b: u32,
+    pub price_b: i128,
+    pub timestamp_b: u64,
+    pub signature_b: BytesN<64>,
+}
